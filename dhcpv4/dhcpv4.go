@@ -160,6 +160,21 @@ func New(modifiers ...Modifier) (*DHCPv4, error) {
 	return &d, nil
 }
 
+func NewReleaseForInterface(ifname string, modifiers ...Modifier) (*DHCPv4, error) {
+	iface, err := net.InterfaceByName(ifname)
+	if err != nil {
+		return nil, err
+	}
+	return NewRelease(iface.HardwareAddr, modifiers...)
+}
+
+func NewRelease(hwaddr net.HardwareAddr, modifiers ...Modifier) (*DHCPv4, error) {
+	return New(PrependModifiers(modifiers,
+		WithHwAddr(hwaddr),
+		WithMessageType(MessageTypeRelease),
+	)...)
+}
+
 // NewDiscoveryForInterface builds a new DHCPv4 Discovery message, with a default
 // Ethernet HW type and the hardware address obtained from the specified
 // interface.

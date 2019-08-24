@@ -174,6 +174,61 @@ func (c *Client) getRemoteUDPAddr() (*net.UDPAddr, error) {
 	return raddr, nil
 }
 
+func (c *Client) Release(ifname string, modifiers ...dhcpv4.Modifier) ([]*dhcpv4.DHCPv4, error) {
+	conversation := make([]*dhcpv4.DHCPv4, 0)
+	raddr, err := c.getRemoteUDPAddr()
+	if err != nil {
+		return nil, err
+	}
+	laddr, err := c.getLocalUDPAddr()
+	if err != nil {
+		return nil, err
+	}
+	// Get our file descriptor for the raw socket we need.
+	var sfd int
+	// If the address is not net.IPV4bcast, use a unicast socket. This should
+	// cover the majority of use cases, but we're essentially ignoring the fact
+	// that the IP could be the broadcast address of a specific subnet.
+	if raddr.IP.Equal(net.IPv4bcast) {
+		sfd, err = MakeBroadcastSocket(ifname)
+	} else {
+		sfd, err = makeRawSocket(ifname)
+	}
+	if err != nil {
+		return conversation, err
+	}
+	rfd, err := makeListeningSocketWithCustomPort(ifname, laddr.Port)
+	if err != nil {
+		return conversation, err
+	}
+
+	defer func() {
+		// close the sockets
+		if err := unix.Close(sfd); err != nil {
+			log.Printf("unix.Close(sendFd) failed: %v", err)
+		}
+		if sfd != rfd {
+			if err := unix.Close(rfd); err != nil {
+				log.Printf("unix.Close(recvFd) failed: %v", err)
+			}
+		}
+	}()
+
+	// Release 
+	release, err := dhcpv4.NewReleaseForInterface(ifname, modifiers...)	
+	if err != nil {
+		return conversation, err
+	}
+
+	_, err = c.SendReceive(sfd, rfd, release, dhcpv4.MessageTypeRelease)
+	if err != nil {
+		return conversation, err
+	}
+
+	return conversation, nil
+
+}
+
 // Exchange runs a full DORA transaction: Discover, Offer, Request, Acknowledge,
 // over UDP. Does not retry in case of failures. Returns a list of DHCPv4
 // structures representing the exchange. It can contain up to four elements,
